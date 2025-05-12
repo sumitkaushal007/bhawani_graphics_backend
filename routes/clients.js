@@ -3,7 +3,6 @@ const router = express.Router();
 const clientsController = require("../controllers/clientController");
 const {
   validateClientCreate,
-  validateClientId,
   validateClientUpdate
 } = require("../validators/clientValidator");
 

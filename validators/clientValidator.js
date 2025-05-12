@@ -10,7 +10,8 @@ exports.validateClientCreate = [
         .notEmpty().withMessage('Name is required'),
 
     body('mobile_number')
-        .notEmpty().withMessage('Mobile number is required'),
+        .notEmpty().withMessage('Mobile number is required')
+        .isLength({ max: 12 }).withMessage('Mobile number must not exceed 15 characters'),
 
     body('description')
         .optional().isString(),
@@ -38,15 +39,36 @@ exports.validateClientCreate = [
         .notEmpty().withMessage('State is required'),
 
     // Contact persons (if provided)
-    body('contact_persons').optional().isArray().withMessage('Contact persons should be an array'),
+    [
+        body('contact_persons')
+            .optional()
+            .isArray()
+            .withMessage('Contact persons should be an array'),
 
-    body('contact_persons.*.name')
-        .if(body('contact_persons').exists())
-        .notEmpty().withMessage('Contact person name is required'),
+        body('contact_persons.*.name')
+            .optional()
+            .notEmpty()
+            .withMessage('Contact person name is required'),
 
-    body('contact_persons.*.mobile')
-        .if(body('contact_persons').exists())
-        .notEmpty().withMessage('Contact person mobile is required'),
+        body('contact_persons.*.mobile')
+            .optional()
+            .notEmpty()
+            .withMessage('Contact person mobile is required')
+            .isLength({ max: 12 })
+            .withMessage('Mobile number must not exceed 12 characters'),
+
+        body('contact_persons.*.email')
+            .optional()
+            .notEmpty()
+            .withMessage('Contact person email is required')
+            .isEmail()
+            .withMessage('Contact person email must be valid'),
+
+        body('contact_persons.*.designation')
+            .optional()
+            .notEmpty()
+            .withMessage('Contact person designation is required'),
+    ]
 ];
 
 // Update Client Validator
@@ -61,8 +83,8 @@ exports.validateClientUpdate = [
     body('gst_number').optional().isString(),
 
     // Client address (if provided)
-    body('client_address').optional().isObject(),
-
+    body('client_address').optional().isArray(),
+ 
     body('client_address.full_address')
         .if(body('client_address').exists())
         .notEmpty().withMessage('Full address is required'),
