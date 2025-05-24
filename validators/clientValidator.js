@@ -20,23 +20,24 @@ exports.validateClientCreate = [
         .optional().isString(),
 
     // Client address (if provided)
-    body('client_address').optional().isObject(),
+    body('client_address').optional().isObject().withMessage('Client address must be an object'),
 
-    body('client_address.full_address')
-        .if(body('client_address').exists())
-        .notEmpty().withMessage('Full address is required'),
+body('client_address.full_address')
+    .if(body('client_address').exists())
+    .notEmpty().withMessage('Full address is required'),
 
-    body('client_address.country')
-        .if(body('client_address').exists())
-        .notEmpty().withMessage('Country is required'),
+body('client_address.country')
+    .if(body('client_address').exists())
+    .notEmpty().withMessage('Country is required'),
 
-    body('client_address.zip_code')
-        .if(body('client_address').exists())
-        .notEmpty().withMessage('Zip code is required'),
+body('client_address.zip_code')
+    .if(body('client_address').exists())
+    .notEmpty().withMessage('Zip code is required'),
 
-    body('client_address.state')
-        .if(body('client_address').exists())
-        .notEmpty().withMessage('State is required'),
+body('client_address.state')
+    .if(body('client_address').exists())
+    .notEmpty().withMessage('State is required'),
+
 
     // Contact persons (if provided)
     [
@@ -83,23 +84,23 @@ exports.validateClientUpdate = [
     body('gst_number').optional().isString(),
 
     // Client address (if provided)
-    body('client_address').optional().isArray(),
- 
-    body('client_address.full_address')
-        .if(body('client_address').exists())
-        .notEmpty().withMessage('Full address is required'),
+    body('client_address').optional().isObject().withMessage('Client address must be an object'),
 
-    body('client_address.country')
-        .if(body('client_address').exists())
-        .notEmpty().withMessage('Country is required'),
+body('client_address.full_address')
+    .if(body('client_address').exists())
+    .notEmpty().withMessage('Full address is required'),
 
-    body('client_address.zip_code')
-        .if(body('client_address').exists())
-        .notEmpty().withMessage('Zip code is required'),
+body('client_address.country')
+    .if(body('client_address').exists())
+    .notEmpty().withMessage('Country is required'),
 
-    body('client_address.state')
-        .if(body('client_address').exists())
-        .notEmpty().withMessage('State is required'),
+body('client_address.zip_code')
+    .if(body('client_address').exists())
+    .notEmpty().withMessage('Zip code is required'),
+
+body('client_address.state')
+    .if(body('client_address').exists())
+    .notEmpty().withMessage('State is required'),
 
     // Contact persons (if provided)
     body('contact_persons').optional().isArray().withMessage('Contact persons should be an array'),
