@@ -14,8 +14,7 @@ const sizeUnitsRoutes = require('./routes/sizeUnits.js');
 const fileRoutes = require("./routes/fileRoutes");
 const unprotected = require("./routes/unprotected.js");
 const clientRoutes = require("./routes/clients.js"); // ✅ Add client route
-// const clientAddress = require('./routes/clientAddress');
-// const clientContactPersonRoutes = require('./routes/clientContactPersonRoutes');
+
 
 const app = express();
 
@@ -33,8 +32,7 @@ app.use("/api/sizeUnits", sizeUnitsRoutes);
 app.use("/api/files", fileRoutes);
 app.use("/api", unprotected);
 app.use("/api/clients", clientRoutes); // ✅ Client route added
-// app.use('/api/client-addresses', clientAddress);
-// app.use('/api/client-contact-persons', clientContactPersonRoutes);
+
 
 // ✅ Default health check route
 app.all('/', (req, res) => {

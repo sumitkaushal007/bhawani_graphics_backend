@@ -11,16 +11,15 @@ function generateProductId(length) {
 }
 
 exports.list = async (req, res) => {
-    let responseObj = {};
-    responseObj.code = 400;
-    responseObj.message = "Something went wrong!";
-    responseObj.data = null;
+    let responseObj = {
+        code: 400,
+        message: "Something went wrong!",
+        data: null
+    };
 
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const offset = (page - 1) * limit;
-
-    const baseUrl = `${req.protocol}://${req.get('host')}${req.baseUrl}${req.path}`;
 
     try {
         const { count, rows: products } = await Products.findAndCountAll({
@@ -30,26 +29,26 @@ exports.list = async (req, res) => {
             order: [['id', 'desc']],
         });
 
-        let totalPages = Math.ceil(count / limit);
-        const nextPage = page < totalPages ? true : false;
-        const previousPage = page > 1 ? true : false;
+        const totalPages = Math.ceil(count / limit);
 
         responseObj.code = 200;
         responseObj.message = "Products fetched successfully!";
         responseObj.data = {
-            total: count,
-            page,
-            limit,
-            totalPages,
-            nextPage,
-            previousPage,
-            products
+            products,
+            pagination: {
+                totalItems: count,
+                currentPage: page,
+                perPage: limit,
+                totalPages,
+                nextPage: page < totalPages,
+                previousPage: page > 1
+            }
         };
-        return res.status(responseObj.code).json(responseObj);
 
+        return res.status(200).json(responseObj);
     } catch (error) {
         responseObj.message = error.message;
-        return res.status(responseObj.code).json(responseObj);
+        return res.status(500).json(responseObj);
     }
 };
 
@@ -191,6 +190,46 @@ exports.put = async (req, res) => {
     }
 
 }
+
+exports.delete = async (req, res) => {
+    console.log(">> DELETE Request:", req.params.id);
+
+    let responseObj = {
+        code: 400,
+        message: "Something went wrong!",
+        data: null
+    };
+
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+        console.log(">> Validation Errors:", errors.array());
+        return res.status(400).json({ errors: errors.array() });
+    }
+
+    try {
+        const { id } = req.params;
+        console.log(">> Deleting product with ID:", id);
+
+        const product = await Products.findByPk(id);
+        if (!product) {
+            console.log(">> Product not found:", id);
+            return res.status(404).json({ code: 404, message: "Product not found!" });
+        }
+
+        await Products.destroy({ where: { id } });
+
+        console.log(">> Product deleted:", id);
+        responseObj.code = 200;
+        responseObj.message = "Product deleted successfully!";
+        return res.status(responseObj.code).json(responseObj);
+
+    } catch (error) {
+        console.log(">> Error during deletion:", error);
+        responseObj.message = error.message;
+        return res.status(responseObj.code).json(responseObj);
+    }
+};
+
 
 exports.checkSlugController = async (req, res) => {
     const errors = validationResult(req);
