@@ -1,4 +1,6 @@
-const { body, param } = require("express-validator");
+const { body, param, query } = require("express-validator");
+
+
 exports.addProduct = [
     body("name")
         .notEmpty()
@@ -40,3 +42,46 @@ exports.updateProduct = [
         .isDecimal()
         .withMessage("Price should be a number or flot value")
 ];
+
+// Search validators
+exports.listProducts = [
+    query('page')
+        .optional()
+        .isInt({ min: 1 })
+        .withMessage('Page must be a positive integer'),
+    
+    query('limit')
+        .optional()
+        .isInt({ min: 1, max: 100 })
+        .withMessage('Limit must be between 1 and 100'),
+    
+    query('search')
+        .optional()
+        .isLength({ min: 1, max: 255 })
+        .withMessage('Search term must be between 1 and 255 characters')
+        .trim()
+];
+
+    exports.fullTextSearch = [
+    query('q')
+        .notEmpty()
+        .withMessage('Search term is required')
+        .isLength({ min: 1, max: 255 })
+        .withMessage('Search term must be between 1 and 255 characters')
+        .trim(),
+
+    query('page')
+        .optional()
+        .isInt({ min: 1 })
+        .withMessage('Page must be a positive integer'),
+
+    query('limit')
+        .optional()
+        .isInt({ min: 1, max: 100 })
+        .withMessage('Limit must be between 1 and 100'),
+
+        query('column')
+        .optional()
+        .isIn(['name', 'brand', 'material', 'description'])
+        .withMessage('Column must be one of: name, brand, material, description'),
+    ];

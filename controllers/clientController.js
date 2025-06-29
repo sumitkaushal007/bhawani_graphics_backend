@@ -43,6 +43,154 @@ exports.getAllClients = async (req, res) => {
     }
 };
 
+// Add this at the top of your controller file
+exports.fullTextSearch = async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+        return res.status(400).json({ errors: errors.array() });
+    }
+
+    try {
+        const { 
+            client_name, 
+            contact_no, 
+            gst, 
+            address, 
+            contact_person_name,
+            page = 1, 
+            limit = 10 
+        } = req.query;
+
+        // Validate and sanitize pagination parameters
+        const parsedPage = Math.max(1, parseInt(page));
+        const parsedLimit = Math.min(Math.max(1, parseInt(limit)), 100);
+
+        // Build WHERE conditions using LIKE instead of FULLTEXT for better compatibility
+        const whereConditions = [];
+        const replacements = {};
+
+        if (client_name && client_name.trim()) {
+            whereConditions.push('c.name LIKE :client_name');
+            replacements.client_name = `%${client_name.trim()}%`;
+        }
+        
+        if (contact_no && contact_no.trim()) {
+            whereConditions.push('c.mobile_number LIKE :contact_no');
+            replacements.contact_no = `%${contact_no.trim().replace(/\D/g, '')}%`;
+        }
+        
+        if (gst && gst.trim()) {
+            whereConditions.push('c.gst_number LIKE :gst');
+            replacements.gst = `%${gst.trim().toUpperCase().replace(/\s+/g, '')}%`;
+        }
+
+        // Handle address search through JOIN
+        if (address && address.trim()) {
+            whereConditions.push('ca.full_address LIKE :address');
+            replacements.address = `%${address.trim()}%`;
+        }
+
+        // Handle contact person search through JOIN
+        if (contact_person_name && contact_person_name.trim()) {
+            whereConditions.push('cp.name LIKE :contact_person_name');
+            replacements.contact_person_name = `%${contact_person_name.trim()}%`;
+        }
+
+        // Build the main query with proper JOINs
+        let fromClause = 'FROM clients c';
+        
+        // Add JOINs only if needed
+        if (address && address.trim()) {
+            fromClause += ' LEFT JOIN client_addresses ca ON c.id = ca.client_id';
+        }
+        
+        if (contact_person_name && contact_person_name.trim()) {
+            fromClause += ' LEFT JOIN client_contact_persons cp ON c.id = cp.client_id';
+        }
+
+        const whereClause = whereConditions.length > 0 ? 
+            `WHERE ${whereConditions.join(' AND ')}` : '';
+
+        // Count query
+        const countQuery = `
+            SELECT COUNT(DISTINCT c.id) as total 
+            ${fromClause}
+            ${whereClause}
+        `;
+
+        const [countResult] = await sequelize.query(countQuery, {
+            replacements,
+            type: sequelize.QueryTypes.SELECT
+        });
+
+        const total = countResult?.total || 0;
+
+        // Main query to get clients with pagination
+        const dataQuery = `
+            SELECT DISTINCT c.id, c.name, c.mobile_number, c.gst_number, c.description, c.created_at, c.updated_at
+            ${fromClause}
+            ${whereClause}
+            ORDER BY c.created_at DESC
+            LIMIT :limit OFFSET :offset
+        `;
+
+        replacements.limit = parsedLimit;
+        replacements.offset = (parsedPage - 1) * parsedLimit;
+
+        const clients = await sequelize.query(dataQuery, {
+            replacements,
+            type: sequelize.QueryTypes.SELECT
+        });
+
+        // Now fetch related data for each client
+        const enrichedClients = await Promise.all(
+            clients.map(async (client) => {
+                // Fetch address
+                const [addresses] = await sequelize.query(
+                    'SELECT * FROM client_addresses WHERE client_id = :clientId ORDER BY id ASC LIMIT 1',
+                    {
+                        replacements: { clientId: client.id },
+                        type: sequelize.QueryTypes.SELECT
+                    }
+                );
+
+                // Fetch contact persons
+                const contactPersons = await sequelize.query(
+                    'SELECT * FROM client_contact_persons WHERE client_id = :clientId ORDER BY id ASC',
+                    {
+                        replacements: { clientId: client.id },
+                        type: sequelize.QueryTypes.SELECT
+                    }
+                );
+
+                return {
+                    ...client,
+                    address: addresses || null,
+                    contactPersons: contactPersons || []
+                };
+            })
+        );
+
+        // Return response with matching frontend structure
+        return res.json({
+            data: enrichedClients,
+            pagination: {
+                currentPage: parsedPage,    // ✅ Match frontend expectation
+                totalPages: Math.ceil(total / parsedLimit),
+                perPage: parsedLimit,       // ✅ Match frontend expectation  
+                totalItems: total           // ✅ Match frontend expectation
+            }
+        });
+
+    } catch (error) {
+        console.error('Search error:', error);
+        return res.status(500).json({ 
+            error: 'Server error occurred during search',
+            message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+        });
+    }
+};
+
 
 exports.createClient = async (req, res) => {
     const errors = validationResult(req);

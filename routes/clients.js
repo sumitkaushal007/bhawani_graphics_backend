@@ -3,8 +3,12 @@ const router = express.Router();
 const clientsController = require("../controllers/clientController");
 const {
   validateClientCreate,
-  validateClientUpdate
+  validateClientUpdate,
+  fullTextSearch
 } = require("../validators/clientValidator");
+
+// Search routes (should come before parameterized routes)
+router.get('/fulltext-search', fullTextSearch, clientsController.fullTextSearch);
 
 router.post('/add', validateClientCreate, clientsController.createClient);
 

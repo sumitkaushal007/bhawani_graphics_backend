@@ -1,5 +1,6 @@
 const { validationResult } = require('express-validator');
 const crypto = require("crypto");
+const Sequelize = require('sequelize'); 
 const {
     Products
 } = require('../models');
@@ -20,9 +21,14 @@ exports.list = async (req, res) => {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const offset = (page - 1) * limit;
+    const search = req.query.search || '';
 
     try {
+        let whereClause = {};
+
+        // Add search functionality
         const { count, rows: products } = await Products.findAndCountAll({
+            where: whereClause,
             distinct: true,
             limit,
             offset,
@@ -32,7 +38,9 @@ exports.list = async (req, res) => {
         const totalPages = Math.ceil(count / limit);
 
         responseObj.code = 200;
-        responseObj.message = "Products fetched successfully!";
+        responseObj.message = search.trim() 
+            ? `Products searched successfully! Found ${count} results for "${search}"` 
+            : "Products fetched successfully!";
         responseObj.data = {
             products,
             pagination: {
@@ -42,13 +50,139 @@ exports.list = async (req, res) => {
                 totalPages,
                 nextPage: page < totalPages,
                 previousPage: page > 1
-            }
+            },
+            searchTerm: search
         };
 
         return res.status(200).json(responseObj);
     } catch (error) {
         responseObj.message = error.message;
         return res.status(500).json(responseObj);
+    }
+};
+
+exports.fullTextSearch = async (req, res) => {
+    // Validate request
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+        return res.status(400).json({
+            code: 400,
+            message: "Validation errors",
+            errors: errors.array(),
+            data: null,
+        });
+    }
+
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const offset = (page - 1) * limit;
+    const searchTerm = req.query.q?.trim() || '';
+    const searchColumn = req.query.column?.trim();
+
+    // Debug logging
+    console.log("Search params:", { 
+        searchTerm, 
+        searchColumn, 
+        page, 
+        limit, 
+        offset 
+    });
+
+    // Allowed columns
+    const allowedColumns = ['name', 'brand', 'material', 'description'];
+    const isValidColumn = searchColumn && allowedColumns.includes(searchColumn);
+    
+    try {
+        let searchQuery, countQuery;
+
+        if (isValidColumn) {
+            // Single column search
+            searchQuery = `
+                SELECT *, 
+                    MATCH(\`${searchColumn}\`) AGAINST(? IN NATURAL LANGUAGE MODE) AS relevance_score
+                FROM products
+                WHERE MATCH(\`${searchColumn}\`) AGAINST(? IN NATURAL LANGUAGE MODE)
+                ORDER BY relevance_score DESC
+                LIMIT ? OFFSET ?
+            `;
+
+            countQuery = `
+                SELECT COUNT(*) AS total
+                FROM products
+                WHERE MATCH(\`${searchColumn}\`) AGAINST(? IN NATURAL LANGUAGE MODE)
+            `;
+        } else {
+            // Multi-column search
+            searchQuery = `
+                SELECT *, 
+                    MATCH(\`name\`, \`brand\`, \`material\`, \`description\`) AGAINST(? IN NATURAL LANGUAGE MODE) AS relevance_score
+                FROM products
+                WHERE MATCH(\`name\`, \`brand\`, \`material\`, \`description\`) AGAINST(? IN NATURAL LANGUAGE MODE)
+                ORDER BY relevance_score DESC
+                LIMIT ? OFFSET ?
+            `;
+
+            countQuery = `
+                SELECT COUNT(*) AS total
+                FROM products
+                WHERE MATCH(\`name\`, \`brand\`, \`material\`, \`description\`) AGAINST(? IN NATURAL LANGUAGE MODE)
+            `;
+        }
+
+        console.log("Executing search query:", searchQuery);
+        console.log("Search replacements:", [searchTerm, searchTerm, limit, offset]);
+
+        // Execute search query - FIXED: Correct Sequelize query usage
+        const products = await Products.sequelize.query(searchQuery, {
+            replacements: [searchTerm, searchTerm, limit, offset],
+            type: Products.sequelize.QueryTypes.SELECT
+        });
+
+        // Execute count query - FIXED: Correct Sequelize query usage
+        const countResult = await Products.sequelize.query(countQuery, {
+            replacements: [searchTerm],
+            type: Products.sequelize.QueryTypes.SELECT
+        });
+
+        const totalCount = countResult[0]?.total || 0;
+
+        console.log("Search results:", {
+            productsFound: products.length,
+            totalCount,
+            searchTerm
+        });
+
+        return res.status(200).json({
+            code: 200,
+            message: `Found ${totalCount} results for "${searchTerm}"`,
+            data: {
+                products,
+                pagination: {
+                    totalItems: totalCount,
+                    currentPage: page,
+                    perPage: limit,
+                    totalPages: Math.ceil(totalCount / limit),
+                    nextPage: page < Math.ceil(totalCount / limit),
+                    previousPage: page > 1,
+                },
+                searchTerm,
+                column: isValidColumn ? searchColumn : "all",
+            },
+        });
+    } catch (error) {
+        console.error("Full-text search error details:", {
+            message: error.message,
+            sql: error.sql,
+            stack: error.stack,
+            searchColumn: searchColumn,
+            isValidColumn: isValidColumn
+        });
+        
+        return res.status(500).json({
+            code: 500,
+            message: "Internal Server Error: " + error.message,
+            data: null,
+        });
     }
 };
 

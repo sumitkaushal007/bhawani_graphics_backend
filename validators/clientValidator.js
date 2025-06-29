@@ -1,7 +1,4 @@
-
-
-
-const { body } = require('express-validator');
+const { body, query } = require('express-validator');
 
 // Create Client Validator
 exports.validateClientCreate = [
@@ -122,4 +119,68 @@ exports.validateClientId = [
 
 exports.validateClientDelete = [
     // You can add additional validation here if needed
+];
+
+// Full-text search validator for clients
+exports.fullTextSearch = [
+    // At least one field must be provided
+    query()
+        .custom((value, { req }) => {
+            const { client_name, contact_no, gst, address, contact_person_name } = req.query;
+            
+            // Check if at least one search field is provided and not empty
+            const hasClientName = client_name && client_name.trim().length > 0;
+            const hasContactNo = contact_no && contact_no.trim().length > 0;
+            const hasGst = gst && gst.trim().length > 0;
+            const hasAddress = address && address.trim().length > 0;
+            const hasContactPersonName = contact_person_name && contact_person_name.trim().length > 0;
+            
+            if (!hasClientName && !hasContactNo && !hasGst && !hasAddress && !hasContactPersonName) {
+                throw new Error('At least one search field is required (client_name, contact_no, gst, address, or contact_person_name)');
+            }
+            
+            return true;
+        }),
+
+    // Individual field validations (all optional but with constraints when provided)
+    query('client_name')
+        .optional()
+        .isLength({ min: 1, max: 255 })
+        .withMessage('Client name must be between 1 and 255 characters')
+        .trim(),
+
+    query('contact_no')
+        .optional()
+        .isLength({ min: 1, max: 15 })
+        .withMessage('Contact number must be between 1 and 15 characters')
+        .trim(),
+
+    query('gst')
+        .optional()
+        .isLength({ min: 1, max: 20 })
+        .withMessage('GST number must be between 1 and 20 characters')
+        .trim(),
+
+    query('address')
+        .optional()
+        .isLength({ min: 1, max: 500 })
+        .withMessage('Address must be between 1 and 500 characters')
+        .trim(),
+
+    query('contact_person_name')
+        .optional()
+        .isLength({ min: 1, max: 255 })
+        .withMessage('Contact person name must be between 1 and 255 characters')
+        .trim(),
+
+    // Pagination parameters
+    query('page')
+        .optional()
+        .isInt({ min: 1 })
+        .withMessage('Page must be a positive integer'),
+
+    query('limit')
+        .optional()
+        .isInt({ min: 1, max: 100 })
+        .withMessage('Limit must be between 1 and 100')
 ];
