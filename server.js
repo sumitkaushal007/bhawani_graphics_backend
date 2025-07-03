@@ -14,6 +14,7 @@ const sizeUnitsRoutes = require('./routes/sizeUnits.js');
 const fileRoutes = require("./routes/fileRoutes");
 const unprotected = require("./routes/unprotected.js");
 const clientRoutes = require("./routes/clients.js"); // ✅ Add client route
+const searchRoutes = require('./routes/search.js');
 
 
 const app = express();
@@ -32,6 +33,7 @@ app.use("/api/sizeUnits", sizeUnitsRoutes);
 app.use("/api/files", fileRoutes);
 app.use("/api", unprotected);
 app.use("/api/clients", clientRoutes); // ✅ Client route added
+app.use('/api', searchRoutes); // or whatever base path you're using
 
 
 // ✅ Default health check route
