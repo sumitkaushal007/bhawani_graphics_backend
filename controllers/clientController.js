@@ -1,6 +1,6 @@
 const { validationResult } = require('express-validator');
 const crypto = require("crypto");
-const { Client, ClientAddress, ClientContactPerson, sequelize } = require('../models');
+const { Client, ClientAddress, ClientContactPerson, ClientProduct, sequelize } = require('../models');
 
 // ID generator function inside the same file
 function generateClientId(length) {
@@ -198,17 +198,18 @@ exports.createClient = async (req, res) => {
         return res.status(400).json({ errors: errors.array() });
     }
 
-    // Begin transaction
-    const t = await sequelize.transaction();
-
+    let t;
     try {
+        t = await sequelize.transaction();
+        
         const {
             name,
             mobile_number,
             description,
             gst_number,
             client_address,
-            contact_persons
+            contact_persons,
+            client_products
         } = req.body;
 
         // Create client
@@ -233,28 +234,41 @@ exports.createClient = async (req, res) => {
                 ...client_address,
                 client_id: newClient.id
             };
-
             await ClientAddress.create(addressObj, { transaction: t });
         }
 
         // Create contact persons if provided
-        if (contact_persons && Array.isArray(contact_persons) && contact_persons.length > 0) {
+        if (contact_persons?.length > 0) {
             const contactPersonsWithClientId = contact_persons.map(person => ({
                 ...person,
                 client_id: newClient.id
             }));
-
             await ClientContactPerson.bulkCreate(contactPersonsWithClientId, { transaction: t });
         }
 
-        // Commit transaction
+        // Create client products if provided
+        if (client_products?.length > 0) {
+            const productsWithClientId = client_products.map(product => ({
+                ...product,
+                client_id: newClient.id,
+                created_at: sequelize.literal('CURRENT_TIMESTAMP'),
+                updated_at: sequelize.literal('CURRENT_TIMESTAMP')
+            }));
+            
+            // Changed from bulkCreate to individual creates
+            for (const product of productsWithClientId) {
+                await ClientProduct.create(product, { transaction: t });
+            }
+        }
+
         await t.commit();
 
-        // Fetch the complete client with associations to return in response
+        // Fetch the complete client with associations
         const clientWithAssociations = await Client.findByPk(newClient.id, {
             include: [
                 { model: ClientAddress, as: 'address' },
-                { model: ClientContactPerson, as: 'contactPersons' }
+                { model: ClientContactPerson, as: 'contactPersons' },
+                { model: ClientProduct, as: 'products' }
             ]
         });
 
@@ -264,10 +278,15 @@ exports.createClient = async (req, res) => {
         });
 
     } catch (err) {
-        // Rollback transaction in case of error
-        await t.rollback();
+        // Only rollback if transaction exists and hasn't been committed
+        if (t && !t.finished) {
+            await t.rollback();
+        }
         console.error("Error creating client:", err);
-        return res.status(500).json({ message: "Internal server error" });
+        return res.status(500).json({ 
+            message: "Internal server error",
+            error: err.message // Include error message for debugging
+        });
     }
 };
 
