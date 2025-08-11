@@ -4,38 +4,51 @@ const { body, query } = require('express-validator');
 exports.validateClientCreate = [
     // Client basic info
     body('name')
-        .notEmpty().withMessage('Name is required'),
+        .notEmpty().withMessage('Name is required')
+        .trim(),
 
     body('mobile_number')
         .notEmpty().withMessage('Mobile number is required')
-        .isLength({ max: 12 }).withMessage('Mobile number must not exceed 15 characters'),
+        .isLength({ min: 10, max: 15 }).withMessage('Mobile number must be between 10-15 characters')
+        .matches(/^\d+$/).withMessage('Mobile number must contain only digits'),
 
     body('description')
-        .optional().isString(),
+        .optional()
+        .isString()
+        .trim(),
 
     body('gst_number')
-        .optional().isString(),
+        .optional()
+        .isString()
+        .trim(),
 
-    // Client address (if provided)
-    body('client_address').optional().isObject().withMessage('Client address must be an object'),
+    // Client address (optional and flexible)
+    body('client_address')
+        .optional()
+        .isObject()
+        .withMessage('Client address must be an object'),
 
     body('client_address.full_address')
-        .if(body('client_address').exists())
-        .notEmpty().withMessage('Full address is required'),
+        .optional()
+        .isString()
+        .trim(),
 
     body('client_address.country')
-        .if(body('client_address').exists())
-        .notEmpty().withMessage('Country is required'),
+        .optional()
+        .isString()
+        .trim(),
 
     body('client_address.zip_code')
-        .if(body('client_address').exists())
-        .notEmpty().withMessage('Zip code is required'),
+        .optional()
+        .isString()
+        .trim(),
 
     body('client_address.state')
-        .if(body('client_address').exists())
-        .notEmpty().withMessage('State is required'),
+        .optional()
+        .isString()
+        .trim(),
 
-    // Contact persons (if provided)
+    // Contact persons (optional)
     body('contact_persons')
         .optional()
         .isArray()
@@ -43,186 +56,255 @@ exports.validateClientCreate = [
 
     body('contact_persons.*.name')
         .optional()
-        .notEmpty()
-        .withMessage('Contact person name is required'),
+        .isString()
+        .trim()
+        .isLength({ min: 1 })
+        .withMessage('Contact person name cannot be empty'),
 
     body('contact_persons.*.mobile')
         .optional()
-        .notEmpty()
-        .withMessage('Contact person mobile is required')
-        .isLength({ max: 12 })
-        .withMessage('Mobile number must not exceed 12 characters'),
+        .isString()
+        .trim()
+        .matches(/^\d{10,15}$/)
+        .withMessage('Contact person mobile must be 10-15 digits'),
 
     body('contact_persons.*.email')
         .optional()
-        .notEmpty()
-        .withMessage('Contact person email is required')
-        .isEmail()
-        .withMessage('Contact person email must be valid'),
+        .isString()
+        .trim()
+        .custom((value) => {
+            // Allow empty strings or valid emails
+            if (!value || value.length === 0) {
+                return true;
+            }
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            if (!emailRegex.test(value)) {
+                throw new Error('Invalid email format');
+            }
+            return true;
+        }),
 
     body('contact_persons.*.designation')
         .optional()
-        .notEmpty()
-        .withMessage('Contact person designation is required'),
+        .isString()
+        .trim(),
 
-    // Client products validation
+    // Client products validation (FIXED field names)
     body('client_products')
+        .isArray({ min: 1 })
+        .withMessage('At least one product is required'),
+
+    body('client_products.*.product_name')
+        .notEmpty()
+        .withMessage('Product name is required')
+        .isString()
+        .trim(),
+
+    body('client_products.*.product_description')
         .optional()
-        .isArray()
-        .withMessage('Client products should be an array'),
-
-    body('client_products.*.product_type')
-        .if(body('client_products').exists())
-        .notEmpty()
-        .withMessage('Product type is required')
-        .isIn(['punch', 'window', 'butterfly', 'other'])
-        .withMessage('Product type must be one of: punch, window, butterfly, other'),
-
-    body('client_products.*.product_specification')
-        .if(body('client_products.*.product_type').equals('other'))
-        .notEmpty()
-        .withMessage('Product specification is required when product type is "other"')
-        .isLength({ max: 255 })
-        .withMessage('Product specification must not exceed 255 characters'),
-
-    body('client_products.*.size')
-        .if(body('client_products').exists())
-        .notEmpty()
-        .withMessage('Product size is required')
-        .isLength({ max: 100 })
-        .withMessage('Product size must not exceed 100 characters'),
+        .isString()
+        .trim(),
 
     body('client_products.*.quantity')
-        .if(body('client_products').exists())
         .notEmpty()
         .withMessage('Product quantity is required')
-        .isInt({ min: 1 })
-        .withMessage('Product quantity must be a positive integer'),
-
-    body('client_products.*.price')
-        .if(body('client_products').exists())
-        .notEmpty()
-        .withMessage('Product price is required')
-        .isFloat({ min: 0 })
-        .withMessage('Product price must be a positive number'),
-
-    body('client_products.*.total_price')
-        .if(body('client_products').exists())
-        .notEmpty()
-        .withMessage('Total price is required')
-        .isFloat({ min: 0 })
-        .withMessage('Total price must be a positive number')
-        .custom((value, { req, path }) => {
-            // Extract the index from the path (e.g., client_products[0].total_price)
-            const match = path.match(/client_products\[(\d+)\]\.total_price/);
-            if (match) {
-                const index = parseInt(match[1]);
-                const product = req.body.client_products[index];
-                
-                if (product && product.quantity && product.price) {
-                    const calculatedTotal = parseFloat(product.quantity) * parseFloat(product.price);
-                    if (Math.abs(parseFloat(value) - calculatedTotal) > 0.01) {
-                        throw new Error('Total price should equal quantity × price');
-                    }
-                }
+        .custom((value) => {
+            const num = Number(value);
+            if (isNaN(num) || num < 1 || !Number.isInteger(num)) {
+                throw new Error('Product quantity must be a positive integer');
             }
             return true;
-        })
+        }),
+
+    body('client_products.*.price')
+        .notEmpty()
+        .withMessage('Product price is required')
+        .custom((value) => {
+            const num = Number(value);
+            if (isNaN(num) || num < 0) {
+                throw new Error('Product price must be a non-negative number');
+            }
+            return true;
+        }),
+
+    body('client_products.*.unit')
+        .optional()
+        .isString()
+        .trim(),
+
+    body('client_products.*.hsn_code')
+        .optional()
+        .isString()
+        .trim(),
+
+    // Allow product_id for updates
+    body('client_products.*.product_id')
+        .optional()
+        .isString()
+        .trim()
 ];
 
 // Update Client Validator
 exports.validateClientUpdate = [
-    // Optional fields
-    body('name').optional().notEmpty().withMessage('Name cannot be empty if provided'),
+    // Optional fields for update
+    body('name')
+        .optional()
+        .notEmpty()
+        .withMessage('Name cannot be empty if provided')
+        .trim(),
 
-    body('mobile_number').optional().notEmpty().withMessage('Mobile number cannot be empty if provided'),
+    body('mobile_number')
+        .optional()
+        .notEmpty()
+        .withMessage('Mobile number cannot be empty if provided')
+        .isLength({ min: 10, max: 15 })
+        .withMessage('Mobile number must be between 10-15 characters')
+        .matches(/^\d+$/)
+        .withMessage('Mobile number must contain only digits'),
 
-    body('description').optional().isString(),
+    body('description')
+        .optional()
+        .isString()
+        .trim(),
 
-    body('gst_number').optional().isString(),
+    body('gst_number')
+        .optional()
+        .isString()
+        .trim(),
 
-    // Client address (if provided)
-    body('client_address').optional().isObject().withMessage('Client address must be an object'),
+    // Client address (optional for update)
+    body('client_address')
+        .optional()
+        .isObject()
+        .withMessage('Client address must be an object'),
 
     body('client_address.full_address')
-        .if(body('client_address').exists())
-        .notEmpty().withMessage('Full address is required'),
+        .optional()
+        .isString()
+        .trim(),
 
     body('client_address.country')
-        .if(body('client_address').exists())
-        .notEmpty().withMessage('Country is required'),
+        .optional()
+        .isString()
+        .trim(),
 
     body('client_address.zip_code')
-        .if(body('client_address').exists())
-        .notEmpty().withMessage('Zip code is required'),
+        .optional()
+        .isString()
+        .trim(),
 
     body('client_address.state')
-        .if(body('client_address').exists())
-        .notEmpty().withMessage('State is required'),
+        .optional()
+        .isString()
+        .trim(),
 
-    // Contact persons (if provided)
-    body('contact_persons').optional().isArray().withMessage('Contact persons should be an array'),
+    // Contact persons (optional for update)
+    body('contact_persons')
+        .optional()
+        .isArray()
+        .withMessage('Contact persons should be an array'),
 
     body('contact_persons.*.name')
-        .if(body('contact_persons').exists())
-        .notEmpty().withMessage('Contact person name is required'),
+        .optional()
+        .isString()
+        .trim()
+        .isLength({ min: 1 })
+        .withMessage('Contact person name cannot be empty'),
 
     body('contact_persons.*.mobile')
-        .if(body('contact_persons').exists())
-        .notEmpty().withMessage('Contact person mobile is required'),
+        .optional()
+        .isString()
+        .trim()
+        .matches(/^\d{10,15}$/)
+        .withMessage('Contact person mobile must be 10-15 digits'),
 
-    // Client products validation for update
+    body('contact_persons.*.email')
+        .optional()
+        .isString()
+        .trim()
+        .custom((value) => {
+            if (!value || value.length === 0) {
+                return true;
+            }
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            if (!emailRegex.test(value)) {
+                throw new Error('Invalid email format');
+            }
+            return true;
+        }),
+
+    body('contact_persons.*.designation')
+        .optional()
+        .isString()
+        .trim(),
+
+    // Client products validation for update (FIXED field names)
     body('client_products')
         .optional()
         .isArray()
         .withMessage('Client products should be an array'),
 
-    body('client_products.*.product_type')
-        .if(body('client_products').exists())
+    body('client_products.*.product_name')
         .optional()
-        .isIn(['punch', 'window', 'butterfly', 'other'])
-        .withMessage('Product type must be one of: punch, window, butterfly, other'),
+        .isString()
+        .trim()
+        .isLength({ min: 1 })
+        .withMessage('Product name cannot be empty if provided'),
 
-    body('client_products.*.product_specification')
-        .if(body('client_products.*.product_type').equals('other'))
-        .notEmpty()
-        .withMessage('Product specification is required when product type is "other"')
-        .isLength({ max: 255 })
-        .withMessage('Product specification must not exceed 255 characters'),
-
-    body('client_products.*.size')
-        .if(body('client_products').exists())
+    body('client_products.*.product_description')
         .optional()
-        .isLength({ max: 100 })
-        .withMessage('Product size must not exceed 100 characters'),
+        .isString()
+        .trim(),
 
     body('client_products.*.quantity')
-        .if(body('client_products').exists())
         .optional()
-        .isInt({ min: 1 })
-        .withMessage('Product quantity must be a positive integer'),
+        .custom((value) => {
+            if (value !== undefined && value !== null && value !== '') {
+                const num = Number(value);
+                if (isNaN(num) || num < 1 || !Number.isInteger(num)) {
+                    throw new Error('Product quantity must be a positive integer');
+                }
+            }
+            return true;
+        }),
 
     body('client_products.*.price')
-        .if(body('client_products').exists())
         .optional()
-        .isFloat({ min: 0 })
-        .withMessage('Product price must be a positive number'),
+        .custom((value) => {
+            if (value !== undefined && value !== null && value !== '') {
+                const num = Number(value);
+                if (isNaN(num) || num < 0) {
+                    throw new Error('Product price must be a non-negative number');
+                }
+            }
+            return true;
+        }),
 
-    body('client_products.*.total_price')
-        .if(body('client_products').exists())
+    body('client_products.*.unit')
         .optional()
-        .isFloat({ min: 0 })
-        .withMessage('Total price must be a positive number')
+        .isString()
+        .trim(),
+
+    body('client_products.*.hsn_code')
+        .optional()
+        .isString()
+        .trim(),
+
+    body('client_products.*.product_id')
+        .optional()
+        .isString()
+        .trim()
 ];
 
-// Client ID Validator (optional if you use path params)
+// Client ID Validator
 exports.validateClientId = [
     body('client_id')
-        .notEmpty().withMessage('Client ID is required')
+        .notEmpty()
+        .withMessage('Client ID is required')
 ];
 
 exports.validateClientDelete = [
-    // You can add additional validation here if needed
+    // Additional validation can be added here if needed
 ];
 
 // Full-text search validator for clients

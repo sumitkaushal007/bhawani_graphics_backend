@@ -19,6 +19,11 @@ module.exports = (sequelize, DataTypes) => {
             autoIncrement: true,
             allowNull: false
         },
+        product_id: {
+            type: DataTypes.STRING(20),
+            allowNull: false,
+            unique: true
+        },
         client_id: {
             type: DataTypes.INTEGER,
             allowNull: false,
@@ -75,7 +80,7 @@ module.exports = (sequelize, DataTypes) => {
                 }
             }
         },
-         created_at: {
+        created_at: {
             type: DataTypes.DATE,
             allowNull: false,
             defaultValue: sequelize.literal("CURRENT_TIMESTAMP")

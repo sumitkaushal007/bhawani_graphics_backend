@@ -9,6 +9,12 @@ function generateClientId(length) {
     return crypto.randomInt(min, max).toString();
 }
 
+function generateProductId(length = 8) {
+    const min = 10 ** (length - 1);
+    const max = 10 ** length - 1;
+    return 'PROD-' + crypto.randomInt(min, max).toString();
+}
+
 exports.getAllClients = async (req, res) => {
     try {
         const page = parseInt(req.query.page) || 1;
@@ -22,8 +28,9 @@ exports.getAllClients = async (req, res) => {
             offset,
             include: [
                 { model: ClientAddress, as: 'address' },
-                { model: ClientContactPerson, as: 'contactPersons' }
-            ],
+                { model: ClientContactPerson, as: 'contactPersons' },
+                { model: ClientProduct, as: 'products' }
+            ]
         });
 
         const totalPages = Math.ceil(count / limit);
@@ -38,12 +45,11 @@ exports.getAllClients = async (req, res) => {
             }
         });
     } catch (err) {
-        console.error("Error fetching clients:", err); // This should log the real reason
+        console.error("Error fetching clients:", err);
         return res.status(500).json({ message: "Internal server error" });
     }
 };
 
-// Add this at the top of your controller file
 exports.fullTextSearch = async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -51,14 +57,14 @@ exports.fullTextSearch = async (req, res) => {
     }
 
     try {
-        const { 
-            client_name, 
-            contact_no, 
-            gst, 
-            address, 
+        const {
+            client_name,
+            contact_no,
+            gst,
+            address,
             contact_person_name,
-            page = 1, 
-            limit = 10 
+            page = 1,
+            limit = 10
         } = req.query;
 
         // Validate and sanitize pagination parameters
@@ -73,12 +79,12 @@ exports.fullTextSearch = async (req, res) => {
             whereConditions.push('c.name LIKE :client_name');
             replacements.client_name = `%${client_name.trim()}%`;
         }
-        
+
         if (contact_no && contact_no.trim()) {
             whereConditions.push('c.mobile_number LIKE :contact_no');
             replacements.contact_no = `%${contact_no.trim().replace(/\D/g, '')}%`;
         }
-        
+
         if (gst && gst.trim()) {
             whereConditions.push('c.gst_number LIKE :gst');
             replacements.gst = `%${gst.trim().toUpperCase().replace(/\s+/g, '')}%`;
@@ -98,17 +104,17 @@ exports.fullTextSearch = async (req, res) => {
 
         // Build the main query with proper JOINs
         let fromClause = 'FROM clients c';
-        
+
         // Add JOINs only if needed
         if (address && address.trim()) {
             fromClause += ' LEFT JOIN client_addresses ca ON c.id = ca.client_id';
         }
-        
+
         if (contact_person_name && contact_person_name.trim()) {
             fromClause += ' LEFT JOIN client_contact_persons cp ON c.id = cp.client_id';
         }
 
-        const whereClause = whereConditions.length > 0 ? 
+        const whereClause = whereConditions.length > 0 ?
             `WHERE ${whereConditions.join(' AND ')}` : '';
 
         // Count query
@@ -175,22 +181,21 @@ exports.fullTextSearch = async (req, res) => {
         return res.json({
             data: enrichedClients,
             pagination: {
-                currentPage: parsedPage,    // ✅ Match frontend expectation
+                currentPage: parsedPage,
                 totalPages: Math.ceil(total / parsedLimit),
-                perPage: parsedLimit,       // ✅ Match frontend expectation  
-                totalItems: total           // ✅ Match frontend expectation
+                perPage: parsedLimit,
+                totalItems: total
             }
         });
 
     } catch (error) {
         console.error('Search error:', error);
-        return res.status(500).json({ 
+        return res.status(500).json({
             error: 'Server error occurred during search',
             message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
         });
     }
 };
-
 
 exports.createClient = async (req, res) => {
     const errors = validationResult(req);
@@ -201,7 +206,7 @@ exports.createClient = async (req, res) => {
     let t;
     try {
         t = await sequelize.transaction();
-        
+
         const {
             name,
             mobile_number,
@@ -237,25 +242,30 @@ exports.createClient = async (req, res) => {
             await ClientAddress.create(addressObj, { transaction: t });
         }
 
-        // Create contact persons if provided
-        if (contact_persons?.length > 0) {
+        // ✅ Create contact persons if provided (FIXED)
+        if (contact_persons && Array.isArray(contact_persons) && contact_persons.length > 0) {
             const contactPersonsWithClientId = contact_persons.map(person => ({
                 ...person,
-                client_id: newClient.id
-            }));
-            await ClientContactPerson.bulkCreate(contactPersonsWithClientId, { transaction: t });
-        }
-
-        // Create client products if provided
-        if (client_products?.length > 0) {
-            const productsWithClientId = client_products.map(product => ({
-                ...product,
                 client_id: newClient.id,
                 created_at: sequelize.literal('CURRENT_TIMESTAMP'),
                 updated_at: sequelize.literal('CURRENT_TIMESTAMP')
             }));
-            
-            // Changed from bulkCreate to individual creates
+
+            for (const person of contactPersonsWithClientId) {
+                await ClientContactPerson.create(person, { transaction: t });
+            }
+        }
+
+        // ✅ Create client products if provided (FIXED - removed duplication)
+        if (client_products && Array.isArray(client_products) && client_products.length > 0) {
+            const productsWithClientId = client_products.map(product => ({
+                ...product,
+                product_id: generateProductId(), // Auto-generate product ID
+                client_id: newClient.id,
+                created_at: sequelize.literal('CURRENT_TIMESTAMP'),
+                updated_at: sequelize.literal('CURRENT_TIMESTAMP')
+            }));
+
             for (const product of productsWithClientId) {
                 await ClientProduct.create(product, { transaction: t });
             }
@@ -283,9 +293,9 @@ exports.createClient = async (req, res) => {
             await t.rollback();
         }
         console.error("Error creating client:", err);
-        return res.status(500).json({ 
+        return res.status(500).json({
             message: "Internal server error",
-            error: err.message // Include error message for debugging
+            error: err.message
         });
     }
 };
@@ -297,7 +307,8 @@ exports.getClientById = async (req, res) => {
         const client = await Client.findByPk(clientId, {
             include: [
                 { model: ClientAddress, as: 'address' },
-                { model: ClientContactPerson, as: 'contactPersons' }
+                { model: ClientContactPerson, as: 'contactPersons' },
+                { model: ClientProduct, as: 'products' }
             ]
         });
 
@@ -315,10 +326,10 @@ exports.getClientById = async (req, res) => {
 exports.updateClient = async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
+        console.log('Validation errors:', errors.array());
         return res.status(400).json({ errors: errors.array() });
     }
 
-    // Begin transaction
     const t = await sequelize.transaction();
 
     try {
@@ -329,16 +340,28 @@ exports.updateClient = async (req, res) => {
             description,
             gst_number,
             client_address,
-            contact_persons
+            contact_persons,
+            client_products
         } = req.body;
 
+        console.log('Received update data:', {
+            name,
+            mobile_number,
+            description,
+            gst_number,
+            client_address: client_address ? '...' : null,
+            contact_persons: contact_persons?.length,
+            client_products: client_products?.length
+        });
+
         // Find client
-        const client = await Client.findByPk(clientId);
+        const client = await Client.findByPk(clientId, { transaction: t });
         if (!client) {
+            await t.rollback();
             return res.status(404).json({ message: "Client not found" });
         }
 
-        // Update client basic info
+        // Update basic client info
         await client.update({
             name: name || client.name,
             mobile_number: mobile_number || client.mobile_number,
@@ -346,50 +369,103 @@ exports.updateClient = async (req, res) => {
             gst_number: gst_number !== undefined ? gst_number : client.gst_number
         }, { transaction: t });
 
-        // Handle client address update (delete old and create new)
+        // Update client address
         if (client_address) {
-            // Delete existing address
             await ClientAddress.destroy({
                 where: { client_id: clientId },
                 transaction: t
             });
 
-            // Create new address
             const addressObj = {
                 ...client_address,
                 client_id: clientId
             };
-
             await ClientAddress.create(addressObj, { transaction: t });
         }
 
-        // Handle contact persons update (delete old and create new)
+        // Update contact persons
         if (contact_persons && Array.isArray(contact_persons)) {
-            // Delete existing contact persons
             await ClientContactPerson.destroy({
                 where: { client_id: clientId },
                 transaction: t
             });
 
-            // Create new contact persons if the array is not empty
             if (contact_persons.length > 0) {
                 const contactPersonsWithClientId = contact_persons.map(person => ({
                     ...person,
-                    client_id: clientId
+                    client_id: clientId,
+                    created_at: sequelize.literal('CURRENT_TIMESTAMP'),
+                    updated_at: sequelize.literal('CURRENT_TIMESTAMP')
                 }));
 
                 await ClientContactPerson.bulkCreate(contactPersonsWithClientId, { transaction: t });
             }
         }
 
-        // Commit transaction
+        // Update client products
+        if (client_products && Array.isArray(client_products)) {
+            // First get existing products to preserve IDs
+            const existingProducts = await ClientProduct.findAll({
+                where: { client_id: clientId },
+                transaction: t
+            });
+
+            const existingProductIds = existingProducts.map(p => p.product_id);
+            const incomingProductIds = client_products.map(p => p.product_id).filter(Boolean);
+
+            // Delete products that are no longer present
+            const productsToDelete = existingProductIds.filter(id => !incomingProductIds.includes(id));
+            if (productsToDelete.length > 0) {
+                await ClientProduct.destroy({
+                    where: {
+                        client_id: clientId,
+                        product_id: productsToDelete
+                    },
+                    transaction: t
+                });
+            }
+
+            // Update or create products
+            for (const product of client_products) {
+                if (product.product_id && existingProductIds.includes(product.product_id)) {
+                    // Update existing product
+                    await ClientProduct.update({
+                        product_name: product.product_name,
+                        product_description: product.product_description,
+                        size: product.size,
+                        quantity: product.quantity,
+                        price: product.price,
+                        total_price: product.total_price,
+                        unit: product.unit,
+                        hsn_code: product.hsn_code,
+                        updated_at: sequelize.literal('CURRENT_TIMESTAMP')
+                    }, {
+                        where: {
+                            client_id: clientId,
+                            product_id: product.product_id
+                        },
+                        transaction: t
+                    });
+                } else {
+                    // Create new product
+                    await ClientProduct.create({
+                        ...product,
+                        product_id: product.product_id || generateProductId(),
+                        client_id: clientId,
+                        created_at: sequelize.literal('CURRENT_TIMESTAMP'),
+                        updated_at: sequelize.literal('CURRENT_TIMESTAMP')
+                    }, { transaction: t });
+                }
+            }
+        }
+
         await t.commit();
 
-        // Fetch the updated client with associations to return in response
         const updatedClient = await Client.findByPk(clientId, {
             include: [
                 { model: ClientAddress, as: 'address' },
-                { model: ClientContactPerson, as: 'contactPersons' }
+                { model: ClientContactPerson, as: 'contactPersons' },
+                { model: ClientProduct, as: 'products' }
             ]
         });
 
@@ -399,27 +475,33 @@ exports.updateClient = async (req, res) => {
         });
 
     } catch (err) {
-        // Rollback transaction in case of error
+        console.error("Detailed update error:", {
+            message: err.message,
+            stack: err.stack,
+            errors: err.errors
+        });
+        
         await t.rollback();
-        console.error("Error updating client:", err);
-        return res.status(500).json({ message: "Internal server error" });
+        return res.status(500).json({ 
+            message: "Internal server error", 
+            error: err.message,
+            details: process.env.NODE_ENV === 'development' ? err.stack : undefined
+        });
     }
 };
 
 exports.deleteClient = async (req, res) => {
-    // Begin transaction
     const t = await sequelize.transaction();
 
     try {
         const clientId = req.params.id;
 
-        // Find client first to check if it exists
+        // Check if the client exists
         const client = await Client.findByPk(clientId);
         if (!client) {
             return res.status(404).json({ message: "Client not found" });
         }
 
-        // Delete related records first to maintain referential integrity
         // Delete client address
         await ClientAddress.destroy({
             where: { client_id: clientId },
@@ -432,7 +514,13 @@ exports.deleteClient = async (req, res) => {
             transaction: t
         });
 
-        // Delete the client
+        // Delete client products
+        await ClientProduct.destroy({
+            where: { client_id: clientId },
+            transaction: t
+        });
+
+        // Delete client
         await Client.destroy({
             where: { id: clientId },
             transaction: t
@@ -446,7 +534,6 @@ exports.deleteClient = async (req, res) => {
         });
 
     } catch (err) {
-        // Rollback transaction in case of error
         await t.rollback();
         console.error("Error deleting client:", err);
         return res.status(500).json({ message: "Internal server error" });
